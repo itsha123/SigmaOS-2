@@ -2,70 +2,60 @@
 
 KERNEL_OFFSET equ 0x0500 ; 1280 byte reserved for BIOS
 
-mov [BOOT_DRIVE], dl ; save drive number in boot drive variable
-
 cli
 xor ax, ax ; set ax to 0
-mov ds, ax ; set ds to 0
-mov es, ax ; set es to 0
-mov ss, ax ; set ss to 0
-mov sp, 0x0d00 ; 1024 bytes down for stack, 1024 bytes below for kernel
+mov ds, ax
+mov es, ax
+mov ss, ax
+mov sp, 0x1500 ; 1024 bytes down for stack, 4096 bytes below for bootloader
 sti
 
-mov bx, KERNEL_OFFSET
-mov dh, 2
+mov [BOOT_DRIVE], dl ; save drive number in boot drive variable
 
-jmp jump_over
+mov si, info_string_1
+call print_string
 
-print_char:
+; move kernel from 0x7e00 to 0x0500
+cld
+mov si, 0x7e00
+mov di, KERNEL_OFFSET
+mov cx, [kernel_bytes]
+rep movsb
+
+call KERNEL_OFFSET ; run kernel
+
+; if there's an error, print
+mov si, error_string_1
+call print_string
+mov si, error_string_2
+call print_string
+jmp $ ; hang
+
+print_string:
     push si
     push ax
     push bx
+.loop:
     mov al, [si]
+    cmp al, 0
+    je .done
     mov ah, 0x0e
     mov bh, 0x00
     int 0x10
+    inc si
+    jmp .loop
+.done:
     pop bx
     pop ax
     pop si
     ret
 
-jump_over:
-
-
-mov si, my_char
-call print_char
-
-jmp $
-
-call disk_load ; Load the kernel from disk into memory at KERNEL_OFFSET
-
-call KERNEL_OFFSET ; run kernel
-
-jmp $ ; infinite loop after kernel done
-
-disk_load:
-    pusha
-
-    mov ah, 0x02
-    mov al, dh
-    mov ch, 0x00
-    mov dh, 0x00
-    mov cl, 0x02
-    mov dl, [BOOT_DRIVE]
-
-    int 0x13
-
-    jc disk_error
-
-    popa
-    ret
-
-disk_error:
-    jmp $ ; if error loading file, infinite loop
-
 BOOT_DRIVE db 0 ; initialize variable for drive number
-my_char db 'a' ; character to print
+error_string_1 db 'Boot error: ', 0
+error_string_2 db 'Kernel broken', 0
+error_string_3 db 'Unknown (o_O)', 0
+info_string_1 db 'Info: No error message after this = failure running kernel', 0
 
+kernel_bytes dw 0 ; will be filled in by build script with size of kernel in bytes
 times 510-($-$$) db 0
 dw 0xaa55

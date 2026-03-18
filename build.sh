@@ -37,25 +37,42 @@ fi
 
 "$LD" -m elf_i386 -Ttext 0x0500 -e kernel_main -o "$BUILD_DIR/kernel.elf" "$BUILD_DIR/kernel.o"
 
-# Flatten ELF -> raw binary
+# turn kernel elf into raw binary
 "$OBJCOPY" -O binary "$BUILD_DIR/kernel.elf" "$BUILD_DIR/kernel.bin"
 
-# --- 3) Create a 1.44MB floppy image and write boot + kernel to it ---
+KERNEL_BIN="$BUILD_DIR/kernel.bin"
 
-dd if=/dev/zero of="$BUILD_DIR/floppy.img" bs=512 count=2880 status=none
-
-dd if="$BUILD_DIR/boot.bin" of="$BUILD_DIR/floppy.img" conv=notrunc status=none
-
-dd if="$BUILD_DIR/kernel.bin" of="$BUILD_DIR/floppy.img" bs=512 seek=1 conv=notrunc status=none
-
-# --- 4) Build a bootable ISO (El Torito) using the floppy image ---
+# Flatten ELF -> raw binary
 mkdir -p "$ISO_ROOT"
-cp "$BUILD_DIR/floppy.img" "$ISO_ROOT/boot.img"
+
+BOOT_IMG="$ISO_ROOT/boot.img"
+rm -f "$BOOT_IMG"
+
+kernel_size=$(stat -c%s "$KERNEL_BIN")
+perl -e 'print pack("v", shift)' "$kernel_size" | dd of="$BUILD_DIR/boot.bin" bs=1 seek=508 conv=notrunc status=none
+
+cat "$BUILD_DIR/boot.bin" > "$BOOT_IMG"
+
+# append to preloaded bytes if i want (currently appending kernel)
+cat "$KERNEL_BIN" >> "$BOOT_IMG"
+
+# Pad boot.img to a whole number of 512-byte sectors
+boot_size=$(stat -c%s "$BOOT_IMG")
+pad=$(( (512 - (boot_size % 512)) % 512 ))
+if (( pad != 0 )); then
+  dd if=/dev/zero bs=1 count="$pad" status=none >> "$BOOT_IMG"
+fi
+
+# Compute how many 512-byte sectors to preload
+boot_size=$(stat -c%s "$BOOT_IMG")
+boot_sectors=$(( boot_size / 512 ))
 
 if command -v genisoimage >/dev/null 2>&1; then
   genisoimage -quiet \
     -o "$BUILD_DIR/os.iso" \
     -b boot.img \
+    -no-emul-boot \
+    -boot-load-size "$boot_sectors" \
     -c boot.cat \
     "$ISO_ROOT"
 else
