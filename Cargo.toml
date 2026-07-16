@@ -1,0 +1,11 @@
+[package]
+name = "SigmaOS-2"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+uefi = {version = "0.37.0", features = ["logger", "panic_handler"]}
+log = "0.4"
+
+[workspace]
+members = ["xtask"]
